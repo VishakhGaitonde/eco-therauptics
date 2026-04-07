@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.pyc
+
+# Models (important)
+*.pth
+*.pkl
+
+# Environment
+venv/
+.env
+
+# Jupyter
+.ipynb_checkpoints/
+
+# OS
+.DS_Store
