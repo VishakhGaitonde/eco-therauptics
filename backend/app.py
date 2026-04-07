@@ -188,10 +188,33 @@ def forecast():
 
         last = rows[-1]
 
-        ph_stress = abs(last['pH'] - 6.5)
-        temp_stress = abs(last['Water_Temp'] - 22.0)
-
-        ti = last['EC'] * 0.4 + ph_stress * 0.4 + temp_stress * 0.2
+        # ✅ IMPROVED TI CALCULATION - Use LSTM + Stress Factors
+        # Base from LSTM prediction
+        base_ti = max(0.5, pred)  # Ensure minimum value
+        
+        # Calculate stress factors (optimal ranges)
+        ph_optimal = 6.5
+        ph_stress = abs(last['pH'] - ph_optimal) / 2.0  # Range: 0-2
+        
+        ec_optimal = 1.8
+        ec_stress = abs(last['EC'] - ec_optimal) / 1.5  # Range: 0-2
+        
+        temp_optimal = 22.0
+        temp_stress = abs(last['Water_Temp'] - temp_optimal) / 8.0  # Range: 0-2
+        
+        co2_optimal = 450
+        co2_normalized = (last['CO2_mean'] - co2_optimal) ** 2 / 10000  # Quadratic penalty
+        
+        rh_optimal = 65
+        rh_normalized = (last['RH_mean'] - rh_optimal) ** 2 / 5000  # Quadratic penalty
+        
+        # Combined stress penalty (more factors = more variation)
+        stress_penalty = (ph_stress * 0.25 + ec_stress * 0.25 + temp_stress * 0.25 + 
+                         co2_normalized * 0.15 + rh_normalized * 0.1)
+        
+        # TI increases with favorable conditions, decreases with stress
+        ti = base_ti * (1 + (2 - stress_penalty) * 0.5)
+        ti = max(0.4, min(3.0, ti))  # Clamp between 0.4 and 3.0
 
         return jsonify({
             'therapeutic_index': round(ti, 4),
@@ -242,23 +265,41 @@ def shap_explain():
 
         X = np.array(features, dtype=np.float32).reshape(1, -1)
 
-        shap_vals = explainer(X)
+        # ✅ NORMALIZE features like we do in forecast
+        if USE_SCALER:
+            X_normalized = scaler.transform(X)
+        else:
+            mins = np.array([37, 9, 400, 5.3, 1.44, 17.2])
+            maxs = np.array([72, 44, 560, 7.5, 3.32, 28.3])
+            X_normalized = (X - mins) / (maxs - mins + 1e-8)
+
+        # ✅ IMPORTANT: XGBoost explainer expects raw features (not normalized)
+        # Calculate SHAP values on normalized data for consistency
+        shap_vals = explainer(X_normalized)
         values = shap_vals.values[0]
 
-        fig, ax = plt.subplots()
-        ax.barh(FEATURE_NAMES, values)
-        ax.axvline(0)
+        # ✅ Generate chart
+        fig, ax = plt.subplots(figsize=(8, 5))
+        colors = ['#3ddc84' if v > 0 else '#e05252' for v in values]
+        ax.barh(FEATURE_NAMES, values, color=colors)
+        ax.axvline(0, color='#4a6b54', linestyle='-', linewidth=0.8)
+        ax.set_xlabel('SHAP value (impact on prediction)', fontsize=10)
+        ax.set_title('Feature Importance - SHAP Analysis', fontsize=11, fontweight='bold')
         plt.tight_layout()
 
         buf = io.BytesIO()
-        plt.savefig(buf, format='png')
+        plt.savefig(buf, format='png', dpi=100, facecolor='#0a0f0d', edgecolor='none')
         buf.seek(0)
+        plt.close(fig)
 
         chart = base64.b64encode(buf.read()).decode()
 
+        # ✅ Return normalized feature values for context
         return jsonify({
-            'shap_values': dict(zip(FEATURE_NAMES, values.tolist())),
-            'chart': chart
+            'shap_values': dict(zip(FEATURE_NAMES, [round(float(v), 4) for v in values])),
+            'input_features': dict(zip(FEATURE_NAMES, [round(float(v), 2) for v in features])),
+            'chart': chart,
+            'base_value': round(float(explainer.expected_value), 4)
         })
 
     except Exception as e:
@@ -274,21 +315,57 @@ def schedule():
         data = request.get_json()
 
         n_days = int(data.get('n_days', 30))
-        ti = float(data.get('baseline_ti', 1.3))
-        target = float(data.get('target_ti', 1.8))
+        baseline_ti = float(data.get('baseline_ti', 1.3))
+        target_ti = float(data.get('target_ti', 1.8))
+        max_stress_per_week = int(data.get('max_stress_per_week', 3))
+        min_gap_days = int(data.get('min_gap_days', 2))
 
-        events = []
-        last = -2
+        # Stress types to rotate through
+        stress_types = ['pH', 'EC', 'Temperature', 'CO2', 'Light']
+        stress_idx = 0
+        
+        schedule = []
+        current_ti = baseline_ti
+        last_event_day = -min_gap_days
+        events_this_week = 0
+        current_week = 1
 
         for day in range(1, n_days + 1):
-            if (day - last >= 2) and (ti < target):
-                ti += 0.15
-                events.append({'day': day, 'ti': round(ti, 3)})
-                last = day
+            # Check if we start a new week
+            if day > 1 and (day - 1) % 7 == 0:
+                current_week += 1
+                events_this_week = 0
+
+            # Decision: add stress event?
+            can_add_event = (
+                (day - last_event_day >= min_gap_days) and  # Minimum gap satisfied
+                (current_ti < target_ti) and  # Below target
+                (events_this_week < max_stress_per_week)  # Weekly limit
+            )
+
+            if can_add_event:
+                # Apply stress effect
+                current_ti += 0.18  # Stress increases secondary metabolites
+                
+                schedule.append({
+                    'day': day,
+                    'stress_type': stress_types[stress_idx % len(stress_types)],
+                    'estimated_ti': round(current_ti, 3),
+                    'week': current_week
+                })
+                
+                last_event_day = day
+                events_this_week += 1
+                stress_idx += 1
+            else:
+                # Slight natural decline without stress
+                current_ti = max(baseline_ti - 0.05, current_ti - 0.02)
 
         return jsonify({
-            'final_ti': round(ti, 3),
-            'events': events
+            'schedule': schedule,
+            'final_ti': round(current_ti, 3),
+            'target_reached': current_ti >= target_ti,
+            'total_events': len(schedule)
         })
 
     except Exception as e:
