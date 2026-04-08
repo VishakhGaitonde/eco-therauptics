@@ -6,8 +6,20 @@ import Forecast from "./components/Forecast";
 import Scheduler from "./components/Scheduler";
 import SHAP from "./components/SHAP";
 
+const DEFAULT_SENSOR_SNAPSHOT = {
+  RH_mean: 59,
+  Air_Temp_mean: 23,
+  CO2_mean: 450,
+  pH: 6.4,
+  EC: 1.87,
+  Water_Temp: 22,
+};
+
 function App() {
   const [currentPage, setCurrentPage] = useState("dashboard");
+  const [sensorSnapshot, setSensorSnapshot] = useState(DEFAULT_SENSOR_SNAPSHOT);
+  const [growthStage, setGrowthStage] = useState("Mid");
+  const [growthStageSource, setGrowthStageSource] = useState("manual");
 
   const pages = {
     dashboard: { label: "Overview", component: Dashboard, icon: "📊" },
@@ -16,8 +28,6 @@ function App() {
     scheduler: { label: "Scheduler", component: Scheduler, icon: "📅" },
     shap: { label: "SHAP Analysis", component: SHAP, icon: "🔍" },
   };
-
-  const CurrentComponent = pages[currentPage]?.component || Dashboard;
 
   return (
     <div className="app-shell">
@@ -50,7 +60,36 @@ function App() {
 
       {/* Main content */}
       <main className="main">
-        <CurrentComponent />
+        {Object.entries(pages).map(([key, { component: PageComponent }]) => (
+          <section
+            key={key}
+            style={{ display: currentPage === key ? "block" : "none", width: "100%" }}
+            aria-hidden={currentPage !== key}
+          >
+            <PageComponent
+              {...(key === "dashboard"
+                ? {
+                    sensorSnapshot,
+                    growthStage,
+                    setGrowthStage,
+                    growthStageSource,
+                    setGrowthStageSource,
+                  }
+                : {})}
+              {...(key === "classifier"
+                ? {
+                    onGrowthStageDetected: (stage) => setGrowthStage(stage),
+                    setGrowthStageSource,
+                  }
+                : {})}
+              {...(key === "shap"
+                ? {
+                    setSensorSnapshot,
+                  }
+                : {})}
+            />
+          </section>
+        ))}
       </main>
     </div>
   );

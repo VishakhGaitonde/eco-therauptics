@@ -1,7 +1,7 @@
 import { useState, useRef } from "react";
 import { classifyImage } from "../services/api";
 
-const Classifier = () => {
+const Classifier = ({ onGrowthStageDetected, setGrowthStageSource }) => {
   const [preview, setPreview] = useState(null);
   const [result, setResult] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -29,6 +29,8 @@ const Classifier = () => {
       const data = await classifyImage(base64);
       if (data.error) throw new Error(data.error);
       setResult(data);
+      onGrowthStageDetected?.(data.growth_stage);
+      setGrowthStageSource?.("classifier");
     } catch (e) {
       setError(e.message);
     } finally {

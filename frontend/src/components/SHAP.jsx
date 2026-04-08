@@ -5,7 +5,7 @@ const DEFAULT_FEATURES = [59, 23, 450, 6.4, 1.87, 22];
 const FEATURE_NAMES = ["RH mean", "Air temp", "CO₂", "pH", "EC", "Water temp"];
 const FEATURE_UNITS = ["%", "°C", "ppm", "", "mS/cm", "°C"];
 
-const SHAP = () => {
+const SHAP = ({ setSensorSnapshot }) => {
   const [features, setFeatures] = useState(DEFAULT_FEATURES);
   const [result, setResult] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -19,6 +19,14 @@ const SHAP = () => {
       const data = await shapExplain(features);
       if (data.error) throw new Error(data.error);
       setResult(data);
+      setSensorSnapshot?.(data.input_features ?? {
+        RH_mean: features[0],
+        Air_Temp_mean: features[1],
+        CO2_mean: features[2],
+        pH: features[3],
+        EC: features[4],
+        Water_Temp: features[5],
+      });
       if (data.chart) setChartImg(`data:image/png;base64,${data.chart}`);
     } catch (e) {
       setError(e.message || "Failed to compute SHAP values");
