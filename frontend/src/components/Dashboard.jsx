@@ -51,9 +51,10 @@ const Dashboard = () => {
   const [sensorData, setSensorData] = useState([]);
   const [tiHistory, setTiHistory] = useState([]);
 
-  useEffect(() => {
+  const refreshSnapshot = () => {
     const newSensorData = generateSensorData();
     const newTiHistory = generateTIHistory();
+    setLoading(true);
     setSensorData(newSensorData);
     setTiHistory(newTiHistory);
 
@@ -64,20 +65,10 @@ const Dashboard = () => {
         setData(null);
       })
       .finally(() => setLoading(false));
-  }, []);
+  };
 
-  // ✅ Refresh data every 10 seconds
   useEffect(() => {
-    const interval = setInterval(() => {
-      const newSensorData = generateSensorData();
-      setSensorData(newSensorData);
-
-      forecastTI(newSensorData)
-        .then(setData)
-        .catch(console.error);
-    }, 10000);
-
-    return () => clearInterval(interval);
+    refreshSnapshot();
   }, []);
 
   const ti = data?.therapeutic_index ?? (tiHistory.length > 0 ? tiHistory[tiHistory.length - 1] : 1.2);
@@ -87,7 +78,13 @@ const Dashboard = () => {
     <div>
       <div className="page-header">
         <h2>Overview</h2>
-        <p>Real-time hydroponic monitoring — Batavia lettuce</p>
+        <p>Snapshot monitoring — values update only when refreshed manually</p>
+      </div>
+
+      <div style={{ marginBottom: 16 }}>
+        <button className="btn btn-green" onClick={refreshSnapshot} disabled={loading}>
+          {loading ? <><span className="spinner" /> Refreshing...</> : "Refresh snapshot"}
+        </button>
       </div>
 
       <TopCards

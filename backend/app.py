@@ -188,37 +188,53 @@ def forecast():
 
         last = rows[-1]
 
-        # ✅ IMPROVED TI CALCULATION - Use LSTM + Stress Factors
-        # Base from LSTM prediction
-        base_ti = max(0.5, pred)  # Ensure minimum value
-        
+        # ✅ BALANCED TI CALCULATION - Blend LSTM output with sensor quality
+        # Normalize the raw LSTM prediction into the TI range so it can be
+        # compared fairly with the sensor-derived score.
+        lstm_score = 0.4 + (max(0.0, min(pred, 1.0)) * 2.6)
+        lstm_score = max(0.4, min(3.0, lstm_score))
+
         # Calculate stress factors (optimal ranges)
         ph_optimal = 6.5
-        ph_stress = abs(last['pH'] - ph_optimal) / 2.0  # Range: 0-2
-        
+        ph_stress = min(abs(last['pH'] - ph_optimal) / 2.0, 2.0)
+
         ec_optimal = 1.8
-        ec_stress = abs(last['EC'] - ec_optimal) / 1.5  # Range: 0-2
-        
+        ec_stress = min(abs(last['EC'] - ec_optimal) / 1.5, 2.0)
+
         temp_optimal = 22.0
-        temp_stress = abs(last['Water_Temp'] - temp_optimal) / 8.0  # Range: 0-2
-        
+        temp_stress = min(abs(last['Water_Temp'] - temp_optimal) / 8.0, 2.0)
+
+        air_temp_optimal = 25.0
+        air_temp_stress = min(abs(last['Air_Temp_mean'] - air_temp_optimal) / 8.0, 2.0)
+
         co2_optimal = 450
-        co2_normalized = (last['CO2_mean'] - co2_optimal) ** 2 / 10000  # Quadratic penalty
-        
+        co2_stress = min((last['CO2_mean'] - co2_optimal) ** 2 / 10000, 2.0)
+
         rh_optimal = 65
-        rh_normalized = (last['RH_mean'] - rh_optimal) ** 2 / 5000  # Quadratic penalty
-        
-        # Combined stress penalty (more factors = more variation)
-        stress_penalty = (ph_stress * 0.25 + ec_stress * 0.25 + temp_stress * 0.25 + 
-                         co2_normalized * 0.15 + rh_normalized * 0.1)
-        
-        # TI increases with favorable conditions, decreases with stress
-        ti = base_ti * (1 + (2 - stress_penalty) * 0.5)
+        rh_stress = min((last['RH_mean'] - rh_optimal) ** 2 / 5000, 2.0)
+
+        # Combined stress penalty keeps the environmental signal visible.
+        stress_penalty = (
+            ph_stress * 0.22 +
+            ec_stress * 0.22 +
+            temp_stress * 0.20 +
+            air_temp_stress * 0.08 +
+            co2_stress * 0.14 +
+            rh_stress * 0.14
+        )
+
+        sensor_quality = 3.0 - (stress_penalty * 1.3)
+        sensor_quality = max(0.4, min(3.0, sensor_quality))
+
+        # Final TI is a 80/20 blend of model output and sensor quality.
+        ti = (lstm_score * 0.80) + (sensor_quality * 0.20)
         ti = max(0.4, min(3.0, ti))  # Clamp between 0.4 and 3.0
 
         return jsonify({
             'therapeutic_index': round(ti, 4),
             'lstm_prediction': round(pred, 4),
+            'lstm_score': round(lstm_score, 4),
+            'sensor_quality_score': round(sensor_quality, 4),
             'interpretation': _interpret_ti(ti),
             'recommendation': _recommend(ti)
         })
