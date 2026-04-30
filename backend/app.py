@@ -17,6 +17,9 @@ import base64
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
+from ultralytics import YOLO
+import cv2
+import numpy as np
 
 # ============================================================
 # APP INIT
@@ -38,8 +41,18 @@ cnn_model = models.resnet18(
     weights=models.ResNet18_Weights.IMAGENET1K_V1
 )
 
+# After creating model, before load_state_dict
+for param in cnn_model.parameters():
+    param.requires_grad = False
+
+for param in cnn_model.layer4.parameters():
+    param.requires_grad = True
+
 cnn_model.fc = nn.Sequential(
-    nn.Linear(512, 128),
+    nn.Linear(512, 256),
+    nn.ReLU(),
+    nn.Dropout(0.4),
+    nn.Linear(256, 128),
     nn.ReLU(),
     nn.Dropout(0.3),
     nn.Linear(128, 3)
@@ -48,10 +61,11 @@ cnn_model.fc = nn.Sequential(
 cnn_model.load_state_dict(
     torch.load('cnn_best.pth', map_location=device)
 )
-
-cnn_model = cnn_model.to(device)
 cnn_model.eval()
 
+print("Loading YOLOv8...")
+yolo_model = YOLO('yolov8n.pt')  # downloads automatically on first run
+print("YOLOv8 loaded ✅")
 
 # ✅ LSTM MODEL
 class PhytochemicalLSTM(nn.Module):
@@ -127,33 +141,72 @@ def health():
 def classify():
     try:
         data = request.get_json()
-
         if not data or 'image' not in data:
             return jsonify({'error': 'No image provided'}), 400
 
+        # Decode base64 image
         img_bytes = base64.b64decode(data['image'])
-        img = Image.open(io.BytesIO(img_bytes)).convert('RGB')
+        img_array = np.frombuffer(img_bytes, np.uint8)
+        img_cv = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
 
-        tensor = cnn_transform(img).unsqueeze(0).to(device)
+        if img_cv is None:
+            return jsonify({'error': 'Could not decode image'}), 400
 
-        with torch.no_grad():
-            outputs = cnn_model(tensor)
-            probs = torch.softmax(outputs, dim=1).cpu().numpy()[0]
-            pred = int(np.argmax(probs))
+        # Step 1 — YOLOv8 detects plants in full image
+        results = yolo_model(img_cv, verbose=False)
+        boxes = results[0].boxes
+
+        crops = []
+        if boxes is not None and len(boxes) > 0:
+            for box in boxes:
+                x1, y1, x2, y2 = map(int, box.xyxy[0].tolist())
+                # Add small padding
+                pad = 10
+                x1 = max(0, x1 - pad)
+                y1 = max(0, y1 - pad)
+                x2 = min(img_cv.shape[1], x2 + pad)
+                y2 = min(img_cv.shape[0], y2 + pad)
+                crop = img_cv[y1:y2, x1:x2]
+                if crop.size > 0:
+                    crops.append(crop)
+
+        # Fallback — if YOLOv8 finds nothing, use full image as one crop
+        if len(crops) == 0:
+            crops = [img_cv]
+
+        # Step 2 — CNN classifies each crop
+        all_probs = []
+
+        for crop in crops:
+            # Convert BGR to RGB
+            crop_rgb = cv2.cvtColor(crop, cv2.COLOR_BGR2RGB)
+            pil_img = Image.fromarray(crop_rgb)
+            tensor = cnn_transform(pil_img).unsqueeze(0).to(device)
+
+            with torch.no_grad():
+                output = cnn_model(tensor)
+                probs = torch.softmax(output, dim=1).cpu().numpy()[0]
+                all_probs.append(probs)
+
+        # Step 3 — Average probabilities across all crops
+        avg_probs = np.mean(all_probs, axis=0)
+        pred = int(np.argmax(avg_probs))
 
         return jsonify({
             'growth_stage': STAGE_NAMES[pred],
-            'confidence': round(float(np.max(probs)), 4),
+            'confidence': round(float(np.max(avg_probs)), 4),
             'probabilities': {
-                'Early': round(float(probs[0]), 4),
-                'Mid': round(float(probs[1]), 4),
-                'Late': round(float(probs[2]), 4)
-            }
+                'Early': round(float(avg_probs[0]), 4),
+                'Mid':   round(float(avg_probs[1]), 4),
+                'Late':  round(float(avg_probs[2]), 4),
+            },
+            'plants_detected': len(crops),
+            'yolo_detections': len(boxes) if boxes is not None else 0,
         })
 
     except Exception as e:
         return jsonify({'error': str(e)}), 500
-
+    
 # ============================================================
 # LSTM FORECAST
 # ============================================================
