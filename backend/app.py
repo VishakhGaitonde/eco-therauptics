@@ -14,6 +14,7 @@ import joblib
 import shap
 import io
 import base64
+import os
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
@@ -59,7 +60,7 @@ cnn_model.fc = nn.Sequential(
 )
 
 cnn_model.load_state_dict(
-    torch.load('cnn_best.pth', map_location=device)
+    torch.load('cnn_fixed.pth', map_location=device)
 )
 cnn_model.eval()
 
@@ -85,7 +86,7 @@ class PhytochemicalLSTM(nn.Module):
 
 lstm_model = PhytochemicalLSTM().to(device)
 lstm_model.load_state_dict(
-    torch.load('lstm_best.pth', map_location=device)
+    torch.load('lstm_fixed.pth', map_location=device)
 )
 lstm_model.eval()
 

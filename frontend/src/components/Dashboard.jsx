@@ -90,9 +90,10 @@ const Dashboard = ({
               padding: "10px 12px",
               borderRadius: "var(--radius)",
               border: "1px solid var(--border)",
-              background: "var(--panel)",
+              background: "rgba(0, 0, 0, 0.2)",
               color: "var(--text)",
               fontFamily: "var(--mono)",
+              outline: "none",
             }}
           >
             {stageOptions.map((option) => (
