@@ -1,5 +1,5 @@
 import React, { useRef, useEffect } from 'react';
-
+// water background
 const WaterBackground = () => {
   const canvasRef = useRef(null);
   const videoRef = useRef(null);
