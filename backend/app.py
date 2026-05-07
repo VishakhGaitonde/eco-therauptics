@@ -440,6 +440,120 @@ def schedule():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+
+# ============================================================
+# OPTIMAL PARAMETERS ROUTE
+# ============================================================
+
+@app.route('/api/optimal_params', methods=['POST'])
+def optimal_params():
+    try:
+        data = request.get_json()
+        target_ti = float(data.get('target_ti', 1.8))
+
+        # TI formula: TI = EC×0.4 + |pH−6.5|×0.4 + |Water_Temp−22|×0.2
+        # We need to find pH, EC, Water_Temp that achieve target_ti
+        # while staying within safe plant survival ranges
+
+        # Safe ranges for Batavia lettuce
+        ph_range    = (5.5, 7.5)
+        ec_range    = (1.0, 3.5)
+        temp_range  = (18.0, 28.0)
+
+        # Optimal baseline (no stress)
+        ph_optimal   = 6.5
+        ec_optimal   = 1.8
+        temp_optimal = 22.0
+
+        # Current TI at optimal conditions
+        baseline_ti = (
+            ec_optimal * 0.4 +
+            abs(ph_optimal - 6.5) * 0.4 +
+            abs(temp_optimal - 22.0) * 0.2
+        )
+
+        # How much TI boost is needed
+        ti_needed = target_ti - baseline_ti
+
+        # Distribute stress evenly across pH, EC, temp
+        # Each parameter contributes proportionally to its weight
+        # pH weight: 0.4, EC weight: 0.4, Temp weight: 0.2
+
+        # pH stress needed: ti_needed × (0.4/1.0) / 0.4 = ti_needed × 1.0
+        ph_stress_needed   = ti_needed * 0.4 / 0.4  # = ti_needed
+        ec_stress_needed   = ti_needed * 0.4 / 0.4  # = ti_needed
+        temp_stress_needed = ti_needed * 0.2 / 0.2  # = ti_needed
+
+        # Distribute: 40% via pH, 40% via EC, 20% via Temp
+        ph_ti_contribution   = ti_needed * 0.4
+        ec_ti_contribution   = ti_needed * 0.4
+        temp_ti_contribution = ti_needed * 0.2
+
+        # Back-calculate parameter values from TI contributions
+        # pH: contribution = |pH - 6.5| × 0.4 → |pH - 6.5| = contribution / 0.4
+        ph_deviation = ph_ti_contribution / 0.4
+        recommended_ph = round(ph_optimal - ph_deviation, 2)  # stress = lower pH
+        recommended_ph = max(ph_range[0], min(ph_range[1], recommended_ph))
+
+        # EC: contribution = EC × 0.4 → EC = (baseline_ec_contribution + ec_ti_contribution) / 0.4
+        recommended_ec = round((ec_optimal * 0.4 + ec_ti_contribution) / 0.4, 2)
+        recommended_ec = max(ec_range[0], min(ec_range[1], recommended_ec))
+
+        # Temp: contribution = |Temp - 22| × 0.2 → |Temp - 22| = contribution / 0.2
+        temp_deviation = temp_ti_contribution / 0.2
+        recommended_temp = round(temp_optimal + temp_deviation, 2)  # stress = higher temp
+        recommended_temp = max(temp_range[0], min(temp_range[1], recommended_temp))
+
+        # Verify achieved TI with recommended values
+        achieved_ti = round(
+            recommended_ec * 0.4 +
+            abs(recommended_ph - 6.5) * 0.4 +
+            abs(recommended_temp - 22.0) * 0.2,
+            4
+        )
+
+        # Safety warnings
+        warnings = []
+        if recommended_ph < 5.8:
+            warnings.append("pH below 5.8 may inhibit nutrient uptake")
+        if recommended_ec > 3.0:
+            warnings.append("EC above 3.0 may cause osmotic stress")
+        if recommended_temp > 26.0:
+            warnings.append("Water temp above 26°C may slow growth")
+
+        return jsonify({
+            'target_ti': target_ti,
+            'achieved_ti': achieved_ti,
+            'recommendations': {
+                'pH': {
+                    'value': recommended_ph,
+                    'optimal': ph_optimal,
+                    'safe_range': ph_range,
+                    'deviation': round(abs(recommended_ph - ph_optimal), 2),
+                    'unit': ''
+                },
+                'EC': {
+                    'value': recommended_ec,
+                    'optimal': ec_optimal,
+                    'safe_range': ec_range,
+                    'deviation': round(abs(recommended_ec - ec_optimal), 2),
+                    'unit': 'mS/cm'
+                },
+                'Water_Temp': {
+                    'value': recommended_temp,
+                    'optimal': temp_optimal,
+                    'safe_range': temp_range,
+                    'deviation': round(abs(recommended_temp - temp_optimal), 2),
+                    'unit': '°C'
+                }
+            },
+            'warnings': warnings,
+            'within_safe_range': len(warnings) == 0
+        })
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 # ============================================================
 # HELPERS
 # ============================================================

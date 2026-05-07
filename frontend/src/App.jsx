@@ -22,6 +22,7 @@ function App() {
   const [sensorSnapshot, setSensorSnapshot] = useState(DEFAULT_SENSOR_SNAPSHOT);
   const [growthStage, setGrowthStage] = useState("Mid");
   const [growthStageSource, setGrowthStageSource] = useState("manual");
+  const [currentTi, setCurrentTi] = useState(null);
 
   const pages = {
     classifier: { label: "Plant Classifier", component: Classifier, icon: "🌿" },
@@ -56,6 +57,8 @@ function App() {
                         setGrowthStage,
                         growthStageSource,
                         setGrowthStageSource,
+                        currentTi,
+                        setCurrentTi,
                       }
                     : {})}
                   {...(key === "classifier"
@@ -67,6 +70,11 @@ function App() {
                   {...(key === "shap"
                     ? {
                         setSensorSnapshot,
+                      }
+                    : {})}
+                  {...(key === "scheduler"
+                    ? {
+                        currentTi,
                       }
                     : {})}
                 />

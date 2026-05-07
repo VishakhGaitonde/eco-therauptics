@@ -50,3 +50,12 @@ export const schedulePlan = async () => {
   });
   return res.json();
 };
+
+export const getOptimalParams = async (targetTI) => {
+  const res = await fetch(`${BASE_URL}/optimal_params`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ target_ti: targetTI }),
+  });
+  return res.json();
+};

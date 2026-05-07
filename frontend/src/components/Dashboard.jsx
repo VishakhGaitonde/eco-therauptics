@@ -20,6 +20,8 @@ const Dashboard = ({
   setGrowthStage,
   growthStageSource = "manual",
   setGrowthStageSource,
+  currentTi,
+  setCurrentTi,
 }) => {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -36,6 +38,7 @@ const Dashboard = ({
         setData(result);
         if (typeof result?.therapeutic_index === "number") {
           setTiHistory((history) => [...history.slice(-9), result.therapeutic_index]);
+          setCurrentTi?.(result.therapeutic_index);
         }
       })
       .catch((err) => {
@@ -55,6 +58,7 @@ const Dashboard = ({
     setSensorSnapshot?.(DEFAULT_SENSOR_SNAPSHOT);
     setGrowthStage?.("Mid");
     setGrowthStageSource?.("manual");
+    setCurrentTi?.(null);
     setData(null);
     setTiHistory([]);
     setError(null);
